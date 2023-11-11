@@ -1,0 +1,191 @@
+#!/bin/bash
+
+set -ueo pipefail
+
+MITAMAE_VERSION="v1.14.1"
+declare -A MITAMAE_RELEASES=(
+    ["x86_64"]="https://github.com/itamae-kitchen/mitamae/releases/download/${MITAMAE_VERSION}/mitamae-x86_64-linux"
+)
+DEFAULT_RECIPES=("main.rb")
+CACHE_DIR="${XDG_CACHE_HOME:-"$HOME/.cache"}/cooker"
+
+trace() {
+    printf "\e[2m%s\e[m\n" "$@" >&2
+}
+
+info() {
+    printf "%s\n" "$@" >&2
+}
+
+success() {
+    printf "\e[32m%s\e[m\n" "$@" >&2
+}
+
+error() {
+    printf "\e[31mERROR: %s\e[m\n" "$@" >&2
+}
+
+fatal() {
+    error "$@"
+    exit 1
+}
+
+quote() {
+    prefix=$'  > \e[2m'
+    suffix=$'\e[m'
+    sed -e "s/^/${prefix}/" -e "s/\$/${suffix}/" >&2
+}
+
+usage() {
+    cat >&2 <<EOS
+usage: "${0##*/}" [OPTIONS]... <destination> <recipes>...
+OPTIONS
+    -h, --help:             show this message
+    -u, --user:             run \`mitamae\` without \`sudo\`
+    -A:                     enable agent forwarding
+    -c, --config CONFIG:    specify config file
+EOS
+}
+
+fatal_usage() {
+    error "$@"
+    usage
+    exit 1
+}
+
+user_mode=""
+agent_mode=""
+config_paths=()
+pos_args=()
+
+while [ $# -ne 0 ]; do
+    case "$1" in
+        "-h" | "--help")
+            usage && exit
+            ;;
+        "-u" | "--user")
+            user_mode="1"
+            ;;
+        "-A")
+            agent_mode="1"
+            ;;
+        "-c" | "--config")
+            config_paths+=("$2")
+            shift
+            ;;
+        "-"*)
+            fatal_usage "unknown option: $1\n"
+            ;;
+        *)
+            pos_args+=("$1")
+            ;;
+    esac
+    shift
+done
+
+destination="${pos_args[0]}"
+recipes=("${pos_args[@]:1}")
+
+if [ -z "${destination}" ]; then
+    fatal_usage "destination is required"
+fi
+
+if [ "${#recipes[@]}" -eq 0 ]; then
+    recipes=("${DEFAULT_RECIPES[@]}")
+fi
+
+info "destination: ${destination}"
+info "recipes:     ${recipes[*]}"
+info "config:      ${config_paths[*]}"
+
+arch=""
+work_dir="$(mktemp -d)"
+trap 'rm -r "$work_dir"' EXIT
+mkdir -p "${work_dir}/recipes"
+
+check_arch() {
+    info "checking host architecture..."
+    arch="$(ssh "${destination}" -- uname -m)"
+}
+
+prepare_mitamae() {
+    local version="$MITAMAE_VERSION"
+    local url="${MITAMAE_RELEASES[${arch}]}"
+    local mitamae_cache="${CACHE_DIR}/mitamae/mitamae-${version}-${arch}"
+    local mitamae_bin="${work_dir}/recipes/mitamae"
+
+    if [ -f "${mitamae_cache}" ]; then
+        cp "${mitamae_cache}" "${mitamae_bin}"
+        return
+    fi
+
+    info "downloading mitamae binary..."
+    curl -o "${mitamae_bin}" -sSLf --compressed "${url}"
+    chmod +x "${mitamae_bin}"
+    mkdir -p "$(dirname "${mitamae_cache}")"
+    cp "${mitamae_bin}" "${mitamae_cache}"
+}
+
+pack_recipes() {
+    info "packing recipes..."
+
+    cat "${config_paths[@]}" <<< "{}" > "${work_dir}/recipes/config.yaml"
+
+    is_ignored() {
+        (git check-ignore -q "$1" >/dev/null 2>&1) || [ ! -f "$(readlink -f "$1")" ]
+    }
+    shopt -s globstar
+    for src in **/*; do
+        if is_ignored "${src}"; then
+            continue
+        fi
+        local dest="${work_dir}/recipes/${src}"
+        mkdir -p "$(dirname "${dest}")"
+        cp --dereference "${src}" "${dest}"
+    done
+
+    tar czvf "${work_dir}/recipes.tar.gz" -C "${work_dir}/recipes" . | quote
+}
+
+apply_recipes() {
+    local mitamae
+    if [ -n "${user_mode}" ]; then
+        mitamae=(./mitamae)
+    else
+        mitamae=(sudo ./mitamae)
+    fi
+
+    local ssh_options=()
+    if [ -n "${agent_mode}" ]; then
+        ssh_options+=("-A")
+    fi
+
+    cat > "${work_dir}/apply" <<EOS
+#!/bin/bash
+set -uexo pipefail
+workdir="\$(dirname "\$(readlink -f "\$0")")"
+trap 'rm -r "\${workdir}"' EXIT
+cd "\${workdir}"
+tar xzf recipes.tar.gz
+${mitamae[*]} local -y config.yaml $(printf "%q" "${recipes[@]}")
+EOS
+    chmod +x "${work_dir}/apply"
+
+    info "copying recipes..."
+    local remote_work_dir
+    remote_work_dir="$(ssh "${destination}" -- "mktemp -d")"
+    local scp_srcs=("${work_dir}/recipes.tar.gz" "${work_dir}/apply")
+    local scp_dest="${destination}:${remote_work_dir}"
+    scp -q "${scp_srcs[@]}" "${scp_dest}" || fatal "could not copy recipes"
+
+    info "applying recipes..."
+    local apply_path
+    apply_path="$(printf "%q" "${remote_work_dir}/apply")"
+    cmd=(ssh -t "${ssh_options[@]}" "${destination}" -- "bash ${apply_path}")
+    ("${cmd[@]}" 2>&1 | quote && success "recipes applied") || fatal "could not apply recipes"
+}
+
+check_arch
+prepare_mitamae
+pack_recipes
+apply_recipes
