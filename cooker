@@ -177,7 +177,7 @@ workdir="\$(dirname "\$(readlink -f "\$0")")"
 trap 'rm -r "\${workdir}"' EXIT
 cd "\${workdir}"
 tar xzf recipes.tar.gz
-${mitamae[*]} local ${mitamae_options[*]} $(printf "%q" "${recipes[@]}")
+${mitamae[*]} local ${mitamae_options[*]} $(printf "%q " "${recipes[@]}")
 EOS
     chmod +x "${work_dir}/apply"
 
