@@ -43,6 +43,7 @@ OPTIONS
     -h, --help:             show this message
     -u, --user:             run \`mitamae\` without \`sudo\`
     -A:                     enable agent forwarding
+    -d, --dry-run:          enable dry run mode
     -c, --config CONFIG:    specify config file
 EOS
 }
@@ -55,6 +56,7 @@ fatal_usage() {
 
 user_mode=""
 agent_mode=""
+dryrun_mode=""
 config_paths=()
 pos_args=()
 
@@ -68,6 +70,9 @@ while [ $# -ne 0 ]; do
             ;;
         "-A")
             agent_mode="1"
+            ;;
+        "-d" | "--dry-run")
+            dryrun_mode="1"
             ;;
         "-c" | "--config")
             config_paths+=("$2")
@@ -160,6 +165,11 @@ apply_recipes() {
         ssh_options+=("-A")
     fi
 
+    local mitamae_options=(-y config.yaml)
+    if [ -n "${dryrun_mode}" ]; then
+        mitamae_options+=("--dry-run")
+    fi
+
     cat > "${work_dir}/apply" <<EOS
 #!/bin/bash
 set -uexo pipefail
@@ -167,7 +177,7 @@ workdir="\$(dirname "\$(readlink -f "\$0")")"
 trap 'rm -r "\${workdir}"' EXIT
 cd "\${workdir}"
 tar xzf recipes.tar.gz
-${mitamae[*]} local -y config.yaml $(printf "%q" "${recipes[@]}")
+${mitamae[*]} local ${mitamae_options[*]} $(printf "%q" "${recipes[@]}")
 EOS
     chmod +x "${work_dir}/apply"
 
