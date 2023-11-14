@@ -33,7 +33,20 @@ fatal() {
 quote() {
     prefix=$'  > \e[2m'
     suffix=$'\e[m'
-    sed -e "s/^/${prefix}/" -e "s/\$/${suffix}/" >&2
+    head="1"
+    while read -r -N 1 c; do
+        chars=()
+        if [ -n "${head}" ]; then
+            chars+=("${prefix}")
+            head=""
+        fi
+        if [ "$c" = $'\n' ]; then
+            chars+=("${suffix}")
+            head="1"
+        fi
+        chars+=("${c}")
+        printf "%s" "${chars[@]}"
+    done
 }
 
 usage() {
