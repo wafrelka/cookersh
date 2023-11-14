@@ -177,9 +177,9 @@ pack_recipes() {
 apply_recipes() {
     local mitamae
     if [ -n "${user_mode}" ]; then
-        mitamae=(./mitamae)
+        mitamae=(env "${envs[*]}" ./mitamae)
     else
-        mitamae=(sudo ./mitamae)
+        mitamae=(sudo env "${envs[*]}" ./mitamae)
     fi
 
     local ssh_options=()
@@ -199,7 +199,7 @@ workdir="\$(dirname "\$(readlink -f "\$0")")"
 trap 'rm -r "\${workdir}"' EXIT
 cd "\${workdir}"
 tar xzf recipes.tar.gz
-env ${envs[*]} ${mitamae[*]} local ${mitamae_options[*]} $(printf "%q " "${recipes[@]}")
+${mitamae[*]} local ${mitamae_options[*]} $(printf "%q " "${recipes[@]}")
 EOS
     chmod +x "${work_dir}/apply"
 
