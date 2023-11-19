@@ -171,7 +171,7 @@ pack_recipes() {
         cp --dereference "${src}" "${dest}"
     done
 
-    tar czvf "${work_dir}/recipes.tar.gz" -C "${work_dir}/recipes" . | quote
+    tar czvf "${work_dir}/recipes.tar.gz" --mtime='2000-01-01 00:00:00' -C "${work_dir}/recipes" . | quote
 }
 
 apply_recipes() {
