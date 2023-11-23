@@ -57,6 +57,7 @@ OPTIONS
     -u, --user:             run \`mitamae\` without \`sudo\`
     -A:                     enable agent forwarding
     -d, --dry-run:          enable dry run mode
+    -l, --local:            run in local
     -e, --env KEY=VALUE:    set environment variable
     -c, --config CONFIG:    specify config file
 EOS
@@ -71,6 +72,7 @@ fatal_usage() {
 user_mode=""
 agent_mode=""
 dryrun_mode=""
+local_mode=""
 envs=()
 config_paths=()
 pos_args=()
@@ -88,6 +90,9 @@ while [ $# -ne 0 ]; do
             ;;
         "-d" | "--dry-run")
             dryrun_mode="1"
+            ;;
+        "-l" | "--local")
+            local_mode="1"
             ;;
         "-e" | "--env")
             if ! (grep -q "=" <<< "$2"); then
@@ -110,10 +115,10 @@ while [ $# -ne 0 ]; do
     shift
 done
 
-destination="${pos_args[0]}"
+destination="${pos_args[0]:-}"
 recipes=("${pos_args[@]:1}")
 
-if [ -z "${destination}" ]; then
+if [ -z "${local_mode}" ] && [ -z "${destination}" ]; then
     fatal_usage "destination is required"
 fi
 
@@ -121,7 +126,7 @@ if [ "${#recipes[@]}" -eq 0 ]; then
     recipes=("${DEFAULT_RECIPES[@]}")
 fi
 
-info "destination: ${destination}"
+info "destination: ${destination:-local}"
 info "recipes:     ${recipes[*]}"
 info "config:      ${config_paths[*]}"
 
@@ -130,9 +135,47 @@ work_dir="$(mktemp -d)"
 trap 'rm -r "$work_dir"' EXIT
 mkdir -p "${work_dir}/recipes"
 
+runssh() {
+    local args=()
+    for arg in "$@"; do
+        args+=("$(printf "%q" "${arg}")")
+    done
+    ssh "${args[@]}"
+}
+
+execute() {
+    if [ -n "${local_mode}" ]; then
+        "$@"
+    else
+        runssh "${destination}" -- "$@"
+    fi
+}
+
+execute_term() {
+    if [ -n "${local_mode}" ]; then
+        "$@"
+    else
+        local options=("-t")
+        if [ -n "${agent_mode}" ]; then
+            options+=("-A")
+        fi
+        runssh "${options[@]}" "${destination}" -- "$@"
+    fi
+}
+
+add_files() {
+    local remote_dir="$1"
+    shift
+    if [ -n "${local_mode}" ]; then
+        cp "$@" "${remote_dir}"
+    else
+        scp -q "$@" "${destination}:${remote_dir}"
+    fi
+}
+
 check_arch() {
     info "checking host architecture..."
-    arch="$(ssh "${destination}" -- uname -m)"
+    arch="$(execute uname -m)"
 }
 
 prepare_mitamae() {
@@ -182,11 +225,6 @@ apply_recipes() {
         mitamae=(sudo env "${envs[*]}" ./mitamae)
     fi
 
-    local ssh_options=()
-    if [ -n "${agent_mode}" ]; then
-        ssh_options+=("-A")
-    fi
-
     local mitamae_options=(-y config.yaml)
     if [ -n "${dryrun_mode}" ]; then
         mitamae_options+=("--dry-run")
@@ -205,16 +243,15 @@ EOS
 
     info "copying recipes..."
     local remote_work_dir
-    remote_work_dir="$(ssh "${destination}" -- "mktemp -d")"
-    local scp_srcs=("${work_dir}/recipes.tar.gz" "${work_dir}/apply")
-    local scp_dest="${destination}:${remote_work_dir}"
-    scp -q "${scp_srcs[@]}" "${scp_dest}" || fatal "could not copy recipes"
+    remote_work_dir="$(execute mktemp -d)"
+    local srcs=("${work_dir}/recipes.tar.gz" "${work_dir}/apply")
+    add_files "${remote_work_dir}" "${srcs[@]}" || fatal "could not copy recipes"
 
     info "applying recipes..."
-    local apply_path
-    apply_path="$(printf "%q" "${remote_work_dir}/apply")"
-    cmd=(ssh -t "${ssh_options[@]}" "${destination}" -- "bash ${apply_path}")
-    ("${cmd[@]}" 2>&1 | quote && success "recipes applied") || fatal "could not apply recipes"
+    (
+        execute_term bash "${remote_work_dir}/apply" 2>&1 | quote &&
+        success "recipes applied"
+    ) || fatal "could not apply recipes"
 }
 
 check_arch
