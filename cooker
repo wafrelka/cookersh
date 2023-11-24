@@ -215,7 +215,7 @@ pack_recipes() {
         cp --dereference "${src}" "${dest}"
     done
 
-    tar czvf "${work_dir}/recipes.tar.gz" --mtime='2000-01-01 00:00:00' -C "${work_dir}/recipes" . | quote
+    tar czf "${work_dir}/recipes.tar.gz" --mtime='2000-01-01 00:00:00' -C "${work_dir}/recipes" . >&2
 }
 
 apply_recipes() {
@@ -233,7 +233,7 @@ apply_recipes() {
 
     cat > "${work_dir}/apply" <<EOS
 #!/bin/bash
-set -uexo pipefail
+set -ueo pipefail
 workdir="\$(dirname "\$(readlink -f "\$0")")"
 trap 'rm -r "\${workdir}"' EXIT
 cd "\${workdir}"
