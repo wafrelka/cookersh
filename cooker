@@ -223,7 +223,7 @@ apply_recipes() {
     if [ -n "${user_mode}" ]; then
         mitamae=(env "${envs[*]}" ./mitamae)
     else
-        mitamae=(sudo env "${envs[*]}" ./mitamae)
+        mitamae=(sudo 'SSH_AUTH_SOCK=${SSH_AUTH_SOCK:-}' env "${envs[*]}" ./mitamae)
     fi
 
     local mitamae_options=(-y config.yaml)
