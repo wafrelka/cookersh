@@ -136,19 +136,21 @@ work_dir="$(mktemp -d)"
 trap 'rm -r "$work_dir"' EXIT
 mkdir -p "${work_dir}/recipes"
 
-runssh() {
+run_quote() {
+    local cmd="$1"
+    shift
     local args=()
     for arg in "$@"; do
         args+=("$(printf "%q" "${arg}")")
     done
-    ssh "${args[@]}"
+    "${cmd}" "${args[@]}"
 }
 
 execute() {
     if [ -n "${local_mode}" ]; then
         "$@"
     else
-        runssh "${destination}" -- "$@"
+        run_quote ssh "${destination}" -- "$@"
     fi
 }
 
@@ -156,11 +158,11 @@ execute_term() {
     if [ -n "${local_mode}" ]; then
         "$@"
     else
-        local options=("-t")
         if [ -n "${agent_mode}" ]; then
-            options+=("-A")
+            run_quote ssh-agent -- ssh -t -A -o "AddKeysToAgent=yes" "${destination}" -- "$@"
+        else
+            run_quote ssh -t "${destination}" -- "$@"
         fi
-        runssh "${options[@]}" "${destination}" -- "$@"
     fi
 }
 
