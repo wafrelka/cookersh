@@ -52,7 +52,7 @@ quote() {
 
 usage() {
     cat >&2 <<EOS
-usage: "${0##*/}" [OPTIONS]... <destination> <recipes>...
+usage: ${0##*/} [OPTIONS]... <destination> <recipes>...
 OPTIONS
     -h, --help:             show this message
     -u, --user:             run \`mitamae\` without \`sudo\`
