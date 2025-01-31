@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -ueo pipefail
 
@@ -234,7 +234,7 @@ apply_recipes() {
     fi
 
     cat > "${work_dir}/apply" <<EOS
-#!/bin/bash
+#!/usr/bin/env bash
 set -ueo pipefail
 workdir="\$(dirname "\$(readlink -f "\$0")")"
 trap 'rm -r "\${workdir}"' EXIT
