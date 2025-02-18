@@ -127,6 +127,11 @@ if [ "${#recipes[@]}" -eq 0 ]; then
     recipes=("${DEFAULT_RECIPES[@]}")
 fi
 
+if [ -n "${PRELUDE_RECIPES:-}" ]; then
+    IFS=':' read -ra PRELUDE <<< "${PRELUDE_RECIPES}"
+    recipes=("${PRELUDE[@]}" "${recipes[@]}")
+fi
+
 info "destination: ${destination:-local}"
 info "recipes:     ${recipes[*]}"
 info "config:      ${config_paths[*]}"
