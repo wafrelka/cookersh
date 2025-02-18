@@ -9,6 +9,7 @@ declare -A MITAMAE_RELEASES=(
 )
 DEFAULT_RECIPES=("main.rb")
 CACHE_DIR="${XDG_CACHE_HOME:-"$HOME/.cache"}/cooker"
+DEFAULT_DIR_RECIPE_NAME="default.rb"
 
 trace() {
     printf "\e[2m%s\e[m\n" "$@" >&2
@@ -117,20 +118,33 @@ while [ $# -ne 0 ]; do
 done
 
 destination="${pos_args[0]:-}"
-recipes=("${pos_args[@]:1}")
+recipe_refs=("${pos_args[@]:1}")
 
 if [ -z "${local_mode}" ] && [ -z "${destination}" ]; then
     fatal_usage "destination is required"
 fi
 
-if [ "${#recipes[@]}" -eq 0 ]; then
-    recipes=("${DEFAULT_RECIPES[@]}")
+if [ "${#recipe_refs[@]}" -eq 0 ]; then
+    recipe_refs=("${DEFAULT_RECIPES[@]}")
 fi
 
 if [ -n "${PRELUDE_RECIPES:-}" ]; then
     IFS=':' read -ra PRELUDE <<< "${PRELUDE_RECIPES}"
-    recipes=("${PRELUDE[@]}" "${recipes[@]}")
+    recipe_refs=("${PRELUDE[@]}" "${recipe_refs[@]}")
 fi
+
+recipes=()
+for recipe_ref in "${recipe_refs[@]}"; do
+    dir_recipe="${recipe_ref}/${DEFAULT_DIR_RECIPE_NAME}"
+    if [ -f "${recipe_ref}" ]; then
+        recipes+=("${recipe_ref}")
+        continue
+    elif [ -f "${dir_recipe}" ]; then
+        recipes+=("${dir_recipe}")
+    else
+        fatal "could not find recipe '${recipe_ref}'"
+    fi
+done
 
 info "destination: ${destination:-local}"
 info "recipes:     ${recipes[*]}"
